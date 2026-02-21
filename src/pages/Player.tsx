@@ -1,94 +1,136 @@
-import React, { useRef, useState, useEffect } from 'react';
-import ReactPlayer from 'react-player';
-import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Play, Pause, Volume2, VolumeX, Maximize, Minimize, SkipForward, SkipBack, Settings, Subtitles, Heart } from 'lucide-react';
-import { useAuthStore } from '@/store/useAuthStore';
-import { useContentStore } from '@/store/useContentStore';
-import clsx from 'clsx';
+import React, { useRef, useState, useEffect } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { ArrowLeft, Maximize, Minimize, Heart } from "lucide-react";
+import { useAuthStore } from "@/store/useAuthStore";
+import { useContentStore } from "@/store/useContentStore";
+import { VideoPlayer } from "@/components/VideoPlayer";
+import clsx from "clsx";
 
 const Player: React.FC = () => {
   const navigate = useNavigate();
   const { type, id } = useParams();
   const { credentials } = useAuthStore();
   const { movies, series, liveChannels, addToHistory, addToFavorites, removeFromFavorites, favorites } = useContentStore();
-  
-  const playerRef = useRef<ReactPlayer>(null);
+
   const containerRef = useRef<HTMLDivElement>(null);
-  
-  // Player State
-  const [url, setUrl] = useState<string>('');
-  const [title, setTitle] = useState<string>('');
-  const [playing, setPlaying] = useState(true);
-  const [volume, setVolume] = useState(1.0); // 0 to 1
-  const [muted, setMuted] = useState(false);
-  const [played, setPlayed] = useState(0);
-  const [duration, setDuration] = useState(0);
+  let controlsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [url, setUrl] = useState("");
+  const [title, setTitle] = useState("");
   const [showControls, setShowControls] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [buffer, setBuffer] = useState(0);
-  
-  // Current Item Data
   const [currentItem, setCurrentItem] = useState<any>(null);
-  
-  let controlsTimeout: NodeJS.Timeout;
+  const [fade, setFade] = useState(true);
 
-  const isFavorite = currentItem && favorites.some((fav) => (fav.stream_id === currentItem.stream_id || fav.series_id === currentItem.series_id));
+  const isFavorite = currentItem && favorites.some(f => f.stream_id === currentItem.stream_id || f.series_id === currentItem.series_id);
 
   useEffect(() => {
-    if (!credentials.serverUrl || !credentials.username || !credentials.password) {
-       console.error("Missing credentials");
-       return;
-    }
+    const onFsChange = () => {
+      const fs = !!document.fullscreenElement;
+      setIsFullscreen(fs);
+    };
+    document.addEventListener("fullscreenchange", onFsChange);
+    return () => document.removeEventListener("fullscreenchange", onFsChange);
+  }, []);
 
-    let streamUrl = '';
-    let contentTitle = '';
-    let extension = '';
-    let itemData = null;
+  const openInMpv = async () => {
+    const w: any = window as any;
+    const payload = { url, title, fs: true };
+    try {
+      if (w?.ipcRenderer?.invoke) {
+        await w.ipcRenderer.invoke('mpv:play', payload);
+        return;
+      }
+      const ipcr = w?.require?.('electron')?.ipcRenderer;
+      if (ipcr?.invoke) {
+        await ipcr.invoke('mpv:play', payload);
+        return;
+      }
+    } catch {}
+  };
 
+  useEffect(() => {
+    if (!credentials.serverUrl) return;
     const numId = Number(id);
+    let streamUrl = "", contentTitle = "", itemData: any = null;
 
-    if (type === 'movie') {
-       const movie = movies.find(m => m.stream_id === numId);
-       if (movie) {
-          contentTitle = movie.name;
-          extension = movie.container_extension || 'mp4';
-          streamUrl = `${credentials.serverUrl}/movie/${credentials.username}/${credentials.password}/${id}.${extension}`;
-          itemData = movie;
-       }
-    } else if (type === 'series') {
-       // Assuming ID is series_id for now, but typically it would be episode_id
-       // For this demo, we'll try to find the series info
-       const s = series.find(s => s.series_id === numId);
-       if (s) {
-          streamUrl = `${credentials.serverUrl}/series/${credentials.username}/${credentials.password}/${id}.mp4`; 
-          contentTitle = s.name; // Playing Series Episode
-          itemData = s;
-       }
-    } else if (type === 'live') {
-       const channel = liveChannels.find(c => c.stream_id === numId);
-       if (channel) {
-          contentTitle = channel.name;
-          streamUrl = `${credentials.serverUrl}/live/${credentials.username}/${credentials.password}/${id}.m3u8`; 
-          itemData = channel;
-       }
+    if (type === "movie") {
+      const movie = movies.find(m => m.stream_id === numId);
+      if (movie) {
+        contentTitle = movie.name;
+        streamUrl = `${credentials.serverUrl}/movie/${credentials.username}/${credentials.password}/${id}.${movie.container_extension || "mp4"}`;
+        itemData = movie;
+      }
+    } else if (type === "series") {
+      const s = series.find(s => s.series_id === numId);
+      if (s) {
+        contentTitle = s.name;
+        streamUrl = `${credentials.serverUrl}/series/${credentials.username}/${credentials.password}/${id}.mp4`;
+        itemData = s;
+      }
+    } else if (type === "episode") {
+      streamUrl = `${credentials.serverUrl}/series/${credentials.username}/${credentials.password}/${id}.mp4`;
+      contentTitle = `Episode ${id}`;
+    } else if (type === "live") {
+      const ch = liveChannels.find(c => c.stream_id === numId);
+      if (ch) {
+        contentTitle = ch.name;
+        streamUrl = `${credentials.serverUrl}/live/${credentials.username}/${credentials.password}/${id}.m3u8`;
+        itemData = ch;
+      }
     }
 
     setTitle(contentTitle);
     setUrl(streamUrl);
     setCurrentItem(itemData);
-    
-    if (itemData) {
-       addToHistory(itemData);
-    }
-
-    console.log("Playing URL:", streamUrl);
-
+    if (itemData) addToHistory(itemData);
   }, [type, id, credentials, movies, series, liveChannels]);
 
-  const handleMouseMove = () => {
+  // Always open VOD (movie/series/episode) in MPV
+  useEffect(() => {
+    if (!url || !title) return;
+    if (type === "live") return;
+    const w: any = window as any;
+    (async () => {
+      try {
+        if (w?.ipcRenderer?.invoke) {
+          await w.ipcRenderer.invoke('mpv:stop');
+          await w.ipcRenderer.invoke('mpv:playVod', { url, title });
+        }
+      } catch {}
+    })();
+    return () => {
+      try { w?.ipcRenderer?.invoke && w.ipcRenderer.invoke('mpv:stop'); } catch {}
+    };
+  }, [url, title, type]);
+
+  useEffect(() => {
+    if (!url || type !== "live") return;
+    const el = containerRef.current;
+    if (!el) return;
+    if (!document.fullscreenElement) {
+      el.requestFullscreen().catch(() => {});
+    }
+    setFade(true);
+    const t = setTimeout(() => setFade(false), 200);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (document.fullscreenElement) {
+          document.exitFullscreen().catch(() => {});
+        }
+        const w: any = window as any;
+        try { w?.ipcRenderer?.invoke && w.ipcRenderer.invoke('mpv:stop'); } catch {}
+        navigate(-1);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => { window.removeEventListener("keydown", onKey); clearTimeout(t); };
+  }, [url, navigate, type]);
+
+  const showCtrls = () => {
     setShowControls(true);
-    clearTimeout(controlsTimeout);
-    controlsTimeout = setTimeout(() => setShowControls(false), 3000);
+    if (controlsTimer.current) clearTimeout(controlsTimer.current);
+    controlsTimer.current = setTimeout(() => setShowControls(false), 3500);
   };
 
   const toggleFullscreen = () => {
@@ -102,181 +144,68 @@ const Player: React.FC = () => {
   };
 
   const toggleFavorite = () => {
-     if (!currentItem) return;
-     
-     if (isFavorite) {
-        removeFromFavorites(currentItem.stream_id || currentItem.series_id);
-     } else {
-        addToFavorites(currentItem);
-     }
-  };
-
-  const formatTime = (seconds: number) => {
-    const date = new Date(seconds * 1000);
-    const hh = date.getUTCHours();
-    const mm = date.getUTCMinutes();
-    const ss = date.getUTCSeconds().toString().padStart(2, '0');
-    if (hh) {
-      return `${hh}:${mm.toString().padStart(2, '0')}:${ss}`;
-    }
-    return `${mm}:${ss}`;
+    if (!currentItem) return;
+    if (isFavorite) removeFromFavorites(currentItem.stream_id || currentItem.series_id);
+    else addToFavorites(currentItem);
   };
 
   return (
-    <div 
+    <div
       ref={containerRef}
-      className="fixed inset-0 bg-black z-50 flex items-center justify-center overflow-hidden font-sans"
-      onMouseMove={handleMouseMove}
+      className="fixed inset-0 bg-black z-50 flex items-center justify-center overflow-hidden"
+      onMouseMove={showCtrls}
       onMouseLeave={() => setShowControls(false)}
     >
-      <ReactPlayer
-        ref={playerRef}
-        url={url}
-        width="100%"
-        height="100%"
-        playing={playing}
-        volume={volume}
-        muted={muted}
-        onProgress={(state) => {
-           setPlayed(state.playedSeconds);
-           setBuffer(state.loadedSeconds);
-        }}
-        onDuration={setDuration}
-        onError={(e) => console.error("Player Error:", e)}
-        config={{
-          file: {
-            forceHLS: type === 'live' || url.endsWith('.m3u8'),
-            attributes: {
-               crossOrigin: "anonymous"
-            }
-          }
-        }}
-      />
+      <div className="absolute inset-0" style={{ opacity: fade ? 1 : 0, transition: "opacity 200ms", background: "black" }} />
+      {type === "live" ? (
+        <VideoPlayer url={url} title={title} type="live" prefKey={`${type}:${id}`} />
+      ) : (
+        <div className="text-white/80 text-sm z-10">
+          MPV’de oynatılıyor…
+        </div>
+      )}
 
-      {/* Overlay Controls */}
-      <div 
-        className={clsx(
-          "absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-black/60 transition-opacity duration-300 flex flex-col justify-between p-8",
-          showControls ? "opacity-100" : "opacity-0 cursor-none"
-        )}
-      >
-        {/* Top Bar */}
-        <div className="flex items-center justify-between">
+      {/* Overlay top controls */}
+      <div className={clsx(
+        "absolute inset-0 flex flex-col justify-between transition-opacity duration-400 pointer-events-none",
+        showControls ? "opacity-100" : "opacity-0"
+      )}>
+        <div className="absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-black/80 to-transparent pointer-events-none" />
+        <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
+
+        <div className="relative z-10 flex items-center justify-between px-8 pt-6 pointer-events-auto">
           <div className="flex items-center gap-4">
-            <button 
-              onClick={() => navigate(-1)}
-              className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors text-white"
-            >
-              <ArrowLeft size={24} />
+            <button onClick={() => navigate(-1)}
+              className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-all backdrop-blur-sm">
+              <ArrowLeft size={20} />
             </button>
             <div>
-               <h1 className="text-xl font-bold text-white shadow-black drop-shadow-md">{title}</h1>
-               {type === 'live' && <span className="bg-red-600 text-white text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider">Live</span>}
-            </div>
-          </div>
-          
-          <button 
-             onClick={toggleFavorite}
-             className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors"
-          >
-             <Heart size={24} className={clsx("transition-colors", isFavorite ? "fill-gold text-gold" : "text-white")} />
-          </button>
-        </div>
-
-        {/* Center Play Button (Large) */}
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          {!playing && (
-            <div className="w-24 h-24 rounded-full bg-gold/80 flex items-center justify-center backdrop-blur-sm shadow-[0_0_30px_rgba(212,175,55,0.6)] animate-fade-in pointer-events-auto cursor-pointer hover:scale-110 transition-transform" onClick={() => setPlaying(true)}>
-              <Play fill="black" size={48} className="ml-2 text-black" />
-            </div>
-          )}
-        </div>
-
-        {/* Bottom Bar */}
-        <div className="space-y-4 mb-4">
-          {/* Progress Bar */}
-          {type !== 'live' && (
-             <div className="flex items-center gap-4 text-sm font-medium text-white/90">
-               <span className="min-w-[50px] text-right">{formatTime(played)}</span>
-               <div className="relative flex-1 h-1.5 group cursor-pointer">
-                  {/* Buffer Bar */}
-                  <div 
-                     className="absolute top-0 left-0 h-full bg-white/20 rounded-full"
-                     style={{ width: `${(buffer / duration) * 100}%` }}
-                  />
-                  <input 
-                    type="range" 
-                    min={0} 
-                    max={duration} 
-                    value={played} 
-                    onChange={(e) => playerRef.current?.seekTo(parseFloat(e.target.value))}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                  />
-                  {/* Played Bar */}
-                  <div 
-                     className="absolute top-0 left-0 h-full bg-gold rounded-full pointer-events-none"
-                     style={{ width: `${(played / duration) * 100}%` }}
-                  >
-                     <div className="absolute right-0 top-1/2 -translate-y-1/2 w-4 h-4 bg-white rounded-full shadow-lg scale-0 group-hover:scale-100 transition-transform" />
-                  </div>
-               </div>
-               <span className="min-w-[50px]">{formatTime(duration)}</span>
-             </div>
-          )}
-
-          {/* Controls Row */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-6">
-              <button onClick={() => setPlaying(!playing)} className="text-white hover:text-gold transition-colors">
-                {playing ? <Pause size={32} fill="currentColor" /> : <Play size={32} fill="currentColor" />}
-              </button>
-              
-              {type !== 'live' && (
-                 <>
-                   <button className="text-white hover:text-gold transition-colors" onClick={() => playerRef.current?.seekTo(played - 10)}>
-                     <SkipBack size={24} />
-                   </button>
-                   
-                   <button className="text-white hover:text-gold transition-colors" onClick={() => playerRef.current?.seekTo(played + 10)}>
-                     <SkipForward size={24} />
-                   </button>
-                 </>
+              <h1 className="text-white font-serif text-xl font-bold drop-shadow-lg">{title}</h1>
+              {type === "live" && (
+                <span className="text-[10px] bg-red-600 text-white px-2 py-0.5 rounded font-bold uppercase tracking-wider">
+                  LIVE
+                </span>
               )}
-
-              <div className="flex items-center gap-3 group relative">
-                <button onClick={() => setMuted(!muted)} className="text-white hover:text-gold transition-colors">
-                  {muted || volume === 0 ? <VolumeX size={24} /> : <Volume2 size={24} />}
-                </button>
-                <div className="w-0 overflow-hidden group-hover:w-24 transition-all duration-300 flex items-center">
-                   <input 
-                     type="range" 
-                     min={0} 
-                     max={1} 
-                     step={0.1} 
-                     value={volume} 
-                     onChange={(e) => setVolume(parseFloat(e.target.value))}
-                     className="w-24 h-1.5 bg-white/20 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-gold"
-                   />
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-6">
-               <button className="text-white hover:text-gold transition-colors flex items-center gap-2 group relative">
-                 <Subtitles size={24} />
-                 <span className="text-xs font-medium max-w-0 overflow-hidden group-hover:max-w-[100px] transition-all whitespace-nowrap">Subtitles</span>
-               </button>
-               
-               <button className="text-white hover:text-gold transition-colors flex items-center gap-2 group relative">
-                 <Settings size={24} />
-                 <span className="text-xs font-medium max-w-0 overflow-hidden group-hover:max-w-[100px] transition-all whitespace-nowrap">Quality</span>
-               </button>
-
-               <button onClick={toggleFullscreen} className="text-white hover:text-gold transition-colors">
-                 {isFullscreen ? <Minimize size={24} /> : <Maximize size={24} />}
-               </button>
             </div>
           </div>
+          <div className="flex items-center gap-2">
+            {type === "live" && (
+              <button onClick={openInMpv}
+                className="px-3 h-9 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-semibold transition-all">
+                MPV
+              </button>
+            )}
+            <button onClick={toggleFavorite}
+              className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all">
+              <Heart size={20} className={clsx(isFavorite ? "fill-gold text-gold" : "text-white")} />
+            </button>
+          </div>
+        </div>
+
+        <div className="relative z-10 px-8 pb-6 flex justify-end pointer-events-auto">
+          <button onClick={toggleFullscreen} className="text-white/70 hover:text-gold transition-colors">
+            {isFullscreen ? <Minimize size={22} /> : <Maximize size={22} />}
+          </button>
         </div>
       </div>
     </div>

@@ -1,9 +1,9 @@
-import React from 'react';
-import { Play, Heart } from 'lucide-react';
-import { motion } from 'framer-motion';
-import { useNavigate } from 'react-router-dom';
-import { useContentStore } from '@/store/useContentStore';
-import clsx from 'clsx';
+﻿import React from "react";
+import { Play, Heart, Star } from "lucide-react";
+import { motion } from "framer-motion";
+import { useNavigate } from "react-router-dom";
+import { useContentStore } from "@/store/useContentStore";
+import clsx from "clsx";
 
 interface MovieCardProps {
   id: number;
@@ -11,25 +11,20 @@ interface MovieCardProps {
   image: string;
   year?: string;
   rating?: string;
-  type?: 'movie' | 'series' | 'live';
+  type?: "movie" | "series" | "live";
   plot?: string;
   cast?: string;
 }
 
-export const MovieCard: React.FC<MovieCardProps> = ({ id, title, image, year, rating, type = 'movie', plot, cast }) => {
+export const MovieCard: React.FC<MovieCardProps> = ({ id, title, image, year, rating, type = "movie", plot }) => {
   const navigate = useNavigate();
   const { favorites, addToFavorites, removeFromFavorites } = useContentStore();
-
-  const isFavorite = favorites.some((fav) => (fav.stream_id === id || fav.series_id === id));
+  const isFavorite = favorites.some(f => f.stream_id === id || f.series_id === id);
 
   const handleClick = () => {
-     if (type === 'live') {
-        navigate(`/player/live/${id}`);
-     } else if (type === 'series') {
-        navigate(`/series/${id}`); 
-     } else {
-        navigate(`/player/movie/${id}`);
-     }
+    if (type === "live") navigate(`/player/live/${id}`);
+    else if (type === "series") navigate(`/series/${id}`);
+    else navigate(`/movie/${id}`);
   };
 
   const toggleFavorite = (e: React.MouseEvent) => {
@@ -37,65 +32,72 @@ export const MovieCard: React.FC<MovieCardProps> = ({ id, title, image, year, ra
     if (isFavorite) {
       removeFromFavorites(id);
     } else {
-      const item = {
-        stream_id: type !== 'series' ? id : undefined,
-        series_id: type === 'series' ? id : undefined,
+      addToFavorites({
+        stream_id: type !== "series" ? id : undefined,
+        series_id: type === "series" ? id : undefined,
         name: title,
-        stream_icon: type !== 'series' ? image : undefined,
-        cover: type === 'series' ? image : undefined,
+        stream_icon: type !== "series" ? image : undefined,
+        cover: type === "series" ? image : undefined,
         stream_type: type,
-        rating: rating,
-      };
-      addToFavorites(item);
+        rating,
+      });
     }
   };
 
+  const ratingNum = parseFloat(rating || "0");
+
   return (
-    <motion.div 
-      whileHover={{ scale: 1.05, y: -5 }}
+    <motion.div
+      whileHover={{ scale: 1.04, y: -4 }}
+      transition={{ duration: 0.2 }}
       onClick={handleClick}
-      className="relative aspect-[2/3] rounded-xl overflow-hidden cursor-pointer group shadow-lg bg-panel"
+      className="relative aspect-[2/3] rounded-xl overflow-hidden cursor-pointer group"
+      style={{ boxShadow: "0 4px 20px rgba(0,0,0,0.5)" }}
     >
-      <img 
-         src={image} 
-         alt={title} 
-         loading="lazy"
-         className="w-full h-full object-cover transition-opacity duration-300 group-hover:opacity-40" 
-         onError={(e) => {
-            (e.target as HTMLImageElement).src = 'https://via.placeholder.com/300x450?text=No+Image';
-         }}
+      <img
+        src={image}
+        alt={title}
+        loading="lazy"
+        className="w-full h-full object-cover transition-all duration-500 group-hover:scale-110"
+        onError={e => { (e.target as HTMLImageElement).src = "https://via.placeholder.com/300x450/111114/333?text=No+Image"; }}
       />
-      
-      {/* Favorite Button (Visible on Hover) */}
-      <div className="absolute top-2 right-2 z-20 opacity-0 group-hover:opacity-100 transition-opacity">
-        <button 
-          onClick={toggleFavorite}
-          className="p-2 rounded-full bg-black/50 hover:bg-black/80 transition-colors backdrop-blur-sm"
-        >
-          <Heart 
-            size={20} 
-            className={clsx("transition-colors", isFavorite ? "fill-gold text-gold" : "text-white")} 
-          />
-        </button>
-      </div>
-      
-      <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col items-center justify-center p-4 text-center">
-        <div className="w-12 h-12 rounded-full bg-gold flex items-center justify-center mb-4 shadow-gold-glow scale-0 group-hover:scale-100 transition-transform duration-300 delay-100">
-          <Play fill="black" className="ml-1" size={24} />
+
+      {/* Rating badge */}
+      {rating && rating !== "N/A" && ratingNum > 0 && (
+        <div className="absolute top-2 left-2 flex items-center gap-0.5 bg-black/75 backdrop-blur-sm px-1.5 py-0.5 rounded-md text-[10px] font-bold text-gold border border-gold/20">
+          <Star size={8} fill="#D4AF37" /> {parseFloat(rating).toFixed(1)}
         </div>
-        
-        <h3 className="text-white font-bold font-serif mb-1 line-clamp-2 text-sm">{title}</h3>
-        
-        <div className="flex items-center gap-2 text-xs text-text-muted mt-2">
-          {year && <span>{year}</span>}
-          {rating && rating !== 'N/A' && <span className="bg-white/10 px-1.5 py-0.5 rounded">{rating}</span>}
+      )}
+
+      {/* Live badge */}
+      {type === "live" && (
+        <div className="absolute top-2 left-2 flex items-center gap-1 bg-red-600/90 backdrop-blur-sm px-2 py-0.5 rounded text-[9px] font-bold text-white uppercase tracking-wider">
+          <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" /> Live
         </div>
-        {plot && <div className="text-[11px] text-text-muted mt-2 line-clamp-3">{plot}</div>}
-        {cast && <div className="text-[11px] text-text-muted mt-1 line-clamp-1">{cast}</div>}
+      )}
+
+      {/* Favorite */}
+      <button
+        onClick={toggleFavorite}
+        className="absolute top-2 right-2 p-1.5 rounded-full bg-black/60 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-all hover:bg-black/80 z-20"
+      >
+        <Heart size={13} className={clsx("transition-colors", isFavorite ? "fill-gold text-gold" : "text-white")} />
+      </button>
+
+      {/* Hover overlay */}
+      <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-3">
+        <div className="flex justify-center mb-2 transform translate-y-3 group-hover:translate-y-0 transition-transform duration-300">
+          <div className="w-9 h-9 rounded-full flex items-center justify-center shadow-gold-glow"
+            style={{ background: "linear-gradient(135deg,#f6c15a,#D4AF37,#ff9f1a)" }}>
+            <Play size={16} fill="black" className="ml-0.5" />
+          </div>
+        </div>
+        <h3 className="text-white font-semibold text-xs text-center line-clamp-2 font-serif leading-tight">{title}</h3>
+        {year && <div className="text-text-dim text-[10px] text-center mt-0.5">{year}</div>}
       </div>
-      
-      {/* Border Glow on Hover */}
-      <div className="absolute inset-0 border-2 border-gold opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-xl pointer-events-none" />
+
+      {/* Gold border glow on hover */}
+      <div className="absolute inset-0 rounded-xl border border-gold/0 group-hover:border-gold/40 transition-all duration-300 pointer-events-none" />
     </motion.div>
   );
 };

@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&family=Playfair+Display:wght@400;600;700&display=swap');
+﻿@import url("https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&display=swap");
 
 @tailwind base;
 @tailwind components;
@@ -7,29 +7,112 @@
 @layer base {
   body {
     @apply bg-background text-text-main font-sans overflow-hidden;
+    background-color: #0b0b0c;
   }
-  
-  /* Custom Scrollbar */
-  ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
-  }
-  
-  ::-webkit-scrollbar-track {
-    @apply bg-panel;
-  }
-  
-  ::-webkit-scrollbar-thumb {
-    @apply bg-gold/30 rounded-full hover:bg-gold/50 transition-colors;
-  }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { @apply bg-gold/20 rounded-full; }
+  ::-webkit-scrollbar-thumb:hover { @apply bg-gold/40; }
 }
 
 @layer utilities {
-  .text-shadow {
-    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
-  }
-  
   .glass-panel {
-    @apply bg-panel/80 backdrop-blur-md border border-white/5;
+    background: rgba(17, 17, 20, 0.7);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(212, 175, 55, 0.12);
   }
+
+  .glass-dark {
+    background: rgba(8, 8, 10, 0.85);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .gold-text {
+    background: linear-gradient(135deg, #f6c15a 0%, #D4AF37 50%, #ff9f1a 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .gold-border {
+    border: 1px solid;
+    border-image: linear-gradient(135deg, #f6c15a, #D4AF37, #ff9f1a) 1;
+  }
+
+  .cinema-bg {
+    background: radial-gradient(ellipse at 20% 50%, rgba(212,175,55,0.06) 0%, transparent 60%),
+                radial-gradient(ellipse at 80% 20%, rgba(255,159,26,0.04) 0%, transparent 50%),
+                #0b0b0c;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar { display: none; }
+  .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+
+  .text-shadow-gold { text-shadow: 0 0 30px rgba(212,175,55,0.5); }
+}
+
+/* Particles */
+.particle {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: rgba(212, 175, 55, 0.6);
+  animation: particleRise linear infinite;
+  pointer-events: none;
+}
+
+@keyframes particleRise {
+  0%   { transform: translateY(0) translateX(0); opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 0.8; }
+  100% { transform: translateY(-100vh) translateX(40px); opacity: 0; }
+}
+
+/* Shimmer for loading skeletons */
+.skeleton {
+  background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* Range input gold style */
+input[type=range] {
+  accent-color: #D4AF37;
+}
+
+/* Gold button shine effect */
+.gold-btn {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg, #f6c15a 0%, #D4AF37 50%, #ff9f1a 100%);
+  color: #000;
+  font-weight: 700;
+  transition: all 0.3s;
+}
+.gold-btn::after {
+  content: "";
+  position: absolute;
+  top: -50%;
+  left: -75%;
+  width: 50%;
+  height: 200%;
+  background: rgba(255,255,255,0.25);
+  transform: skewX(-25deg);
+  transition: left 0.5s;
+}
+.gold-btn:hover::after {
+  left: 125%;
+}
+.gold-btn:hover {
+  box-shadow: 0 0 32px rgba(255,215,0,0.55);
 }

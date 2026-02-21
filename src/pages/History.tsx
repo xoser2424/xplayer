@@ -1,63 +1,56 @@
-import React from 'react';
-import { useContentStore } from '@/store/useContentStore';
-import { MovieCard } from '@/components/MovieCard';
-import { Clock, Trash2 } from 'lucide-react';
+﻿import React from "react";
+import { useContentStore } from "@/store/useContentStore";
+import { MovieCard } from "@/components/MovieCard";
+import { Clock, Trash2 } from "lucide-react";
+import { motion } from "framer-motion";
 
 const History: React.FC = () => {
   const { history } = useContentStore();
 
-  // We might want to add a clear history function to the store later
-  const clearHistory = () => {
-    // Implement clear history logic in store
-    console.log("Clear history clicked");
-  };
-
   return (
     <div className="h-full flex flex-col">
-      <div className="mb-8 flex items-center justify-between">
+      <div className="mb-6 flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <div className="p-3 bg-gold/10 rounded-full">
-            <Clock className="text-gold" size={32} />
+          <div className="w-12 h-12 rounded-2xl flex items-center justify-center"
+            style={{ background: "rgba(212,175,55,0.1)", border: "1px solid rgba(212,175,55,0.2)" }}>
+            <Clock className="text-gold" size={22} />
           </div>
           <div>
-            <h1 className="text-3xl font-serif font-bold text-white">Watch History</h1>
-            <p className="text-text-muted text-sm">Continue where you left off</p>
+            <h1 className="font-serif text-2xl font-bold text-white">Watch History</h1>
+            <p className="text-text-dim text-xs">{history.length} titles watched</p>
           </div>
         </div>
-        
-        {history.length > 0 && (
-          <button 
-            onClick={clearHistory}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/5 hover:bg-red-500/20 hover:text-red-400 transition-colors text-text-muted text-sm"
-          >
-            <Trash2 size={16} />
-            <span>Clear History</span>
-          </button>
-        )}
       </div>
 
       {history.length > 0 ? (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6 pb-10">
-          {history.map((item, index) => (
-            <div key={`${item.stream_id || item.series_id}-${index}`}>
-              <MovieCard 
-                id={item.stream_id || item.series_id}
-                title={item.name}
-                image={item.stream_icon || item.cover || 'https://via.placeholder.com/300x450?text=No+Image'}
-                rating={item.rating?.toString()}
-                type={item.stream_type === 'live' ? 'live' : item.series_id ? 'series' : 'movie'}
-              />
-              <div className="mt-2 h-1 bg-white/10 rounded-full overflow-hidden">
-                <div className="h-full bg-gold w-1/2" /> {/* Mock progress for now */}
-              </div>
-            </div>
-          ))}
+        <div className="overflow-y-auto scrollbar-hide flex-1">
+          <div className="grid gap-3 pb-10" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))" }}>
+            {history.map((item, i) => (
+              <motion.div key={`${item.stream_id || item.series_id}-${i}`}
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: i * 0.02 }}>
+                <MovieCard
+                  id={item.stream_id || item.series_id}
+                  title={item.name}
+                  image={item.stream_icon || item.cover || "https://via.placeholder.com/300x450/111114/444?text=No+Image"}
+                  rating={item.rating?.toString()}
+                  type={item.stream_type === "live" ? "live" : item.series_id ? "series" : "movie"}
+                />
+              </motion.div>
+            ))}
+          </div>
         </div>
       ) : (
-        <div className="flex-1 flex flex-col items-center justify-center text-text-muted">
-          <Clock size={64} className="mb-4 opacity-20" />
-          <h2 className="text-xl font-medium mb-2">No History Found</h2>
-          <p>Your watch history will appear here.</p>
+        <div className="flex-1 flex flex-col items-center justify-center text-text-muted gap-4">
+          <div className="w-24 h-24 rounded-full flex items-center justify-center"
+            style={{ background: "rgba(212,175,55,0.05)", border: "2px solid rgba(212,175,55,0.1)" }}>
+            <Clock size={40} className="opacity-20 text-gold" />
+          </div>
+          <div className="text-center">
+            <h2 className="text-lg font-serif font-semibold text-white/40 mb-1">No History Found</h2>
+            <p className="text-sm text-text-dim">Your watch history will appear here.</p>
+          </div>
         </div>
       )}
     </div>

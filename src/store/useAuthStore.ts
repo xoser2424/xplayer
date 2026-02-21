@@ -95,66 +95,116 @@ export const useAuthStore = create<AuthState>()(
               service.getVodStreams(),
               service.getSeries()
             ]);
-            const initialLive = liveRes.status === 'fulfilled' ? (liveRes.value ?? []) : [];
-            const initialVod = vodRes.status === 'fulfilled' ? (vodRes.value ?? []) : [];
-            const initialSeries = seriesRes.status === 'fulfilled' ? (seriesRes.value ?? []) : [];
+            const toArray = (val: any) => {
+              if (Array.isArray(val)) return val;
+              if (val && typeof val === 'object') return Object.values(val);
+              return [];
+            };
+            const dedupeBy = (arr: any[], key: string) => {
+              const map = new Map<any, any>();
+              for (const it of arr) {
+                const k = it?.[key];
+                if (!map.has(k)) map.set(k, it);
+              }
+              return Array.from(map.values());
+            };
+            const initialLive = toArray(liveRes.status === 'fulfilled' ? (liveRes.value ?? []) : []);
+            const initialVod = toArray(vodRes.status === 'fulfilled' ? (vodRes.value ?? []) : []);
+            const initialSeries = toArray(seriesRes.status === 'fulfilled' ? (seriesRes.value ?? []) : []);
 
-            let liveStreams = Array.isArray(initialLive) ? initialLive : [];
+            let liveStreams = initialLive;
             if (liveStreams.length === 0) {
               try {
                 const zeroLive = await service.getLiveStreams('0' as any);
-                if (Array.isArray(zeroLive) && zeroLive.length > 0) {
-                  liveStreams = zeroLive;
+                const zArr = toArray(zeroLive);
+                if (zArr.length > 0) {
+                  liveStreams = zArr;
                 } else {
                   const perCatLive = await Promise.all(
                     liveCats.map((cat: any) => service.getLiveStreams(String(cat.category_id)))
                   );
-                  liveStreams = perCatLive.flat().filter(Boolean);
+                  liveStreams = perCatLive.flatMap(toArray).filter(Boolean);
                 }
               } catch {
                 // Silent
               }
             }
 
-            let vodStreams = Array.isArray(initialVod) ? initialVod : [];
+            let vodStreams = initialVod;
             if (vodStreams.length === 0) {
               // Try category_id=0 (some panels return all VOD with 0)
               try {
                 const zeroVod = await service.getVodStreams('0' as any);
-                if (Array.isArray(zeroVod) && zeroVod.length > 0) {
-                  vodStreams = zeroVod;
+                const zArr = toArray(zeroVod);
+                if (zArr.length > 0) {
+                  vodStreams = zArr;
                 } else {
                   // Fallback: fetch per category and merge
                   const perCatVod = await Promise.all(
                     vodCats.map((cat: any) => service.getVodStreams(String(cat.category_id)))
                   );
-                  vodStreams = perCatVod.flat().filter(Boolean);
+                  vodStreams = perCatVod.flatMap(toArray).filter(Boolean);
                 }
               } catch {
                 // Silent; keep empty if still failing
               }
             }
 
-            let seriesStreams = Array.isArray(initialSeries) ? initialSeries : [];
+            let seriesStreams = initialSeries;
             if (seriesStreams.length === 0) {
               try {
                 const zeroSeries = await service.getSeries('0' as any);
-                if (Array.isArray(zeroSeries) && zeroSeries.length > 0) {
-                  seriesStreams = zeroSeries;
+                const zArr = toArray(zeroSeries);
+                if (zArr.length > 0) {
+                  seriesStreams = zArr;
                 } else {
                   const perCatSeries = await Promise.all(
                     seriesCats.map((cat: any) => service.getSeries(String(cat.category_id)))
                   );
-                  seriesStreams = perCatSeries.flat().filter(Boolean);
+                  seriesStreams = perCatSeries.flatMap(toArray).filter(Boolean);
                 }
               } catch {
                 // Silent
               }
             }
 
-            contentStore.setLiveContent(liveStreams || [], liveCats);
-            contentStore.setMovieContent(vodStreams || [], vodCats);
-            contentStore.setSeriesContent(seriesStreams || [], seriesCats);
+            contentStore.setLiveContent(dedupeBy(liveStreams || [], 'stream_id'), liveCats);
+            contentStore.setMovieContent(dedupeBy(vodStreams || [], 'stream_id'), vodCats);
+            contentStore.setSeriesContent(dedupeBy(seriesStreams || [], 'series_id'), seriesCats);
+
+            // Background metadata prefetch (persisted)
+            (async () => {
+              try {
+                const { setMovieInfo, setSeriesInfo, movieInfos, seriesInfos } = useContentStore.getState() as any;
+                const svc = new XtreamService({ baseUrl: url, username, password });
+                const maxMovies = Math.min((vodStreams || []).length, 300);
+                const maxSeries = Math.min((seriesStreams || []).length, 300);
+                const movieTargets = (vodStreams || []).slice(0, maxMovies).filter((m: any) => !movieInfos?.[m.stream_id]);
+                const seriesTargets = (seriesStreams || []).slice(0, maxSeries).filter((s: any) => !seriesInfos?.[s.series_id]);
+                const runLimited = async (items: any[], worker: (x: any) => Promise<void>, concurrency = 4) => {
+                  const queue = [...items];
+                  const workers = Array(Math.min(concurrency, queue.length)).fill(0).map(async () => {
+                    while (queue.length) {
+                      const item = queue.shift();
+                      if (!item) break;
+                      try { await worker(item); } catch {}
+                      await new Promise(r => setTimeout(r, 150));
+                    }
+                  });
+                  await Promise.all(workers);
+                };
+                await runLimited(movieTargets, async (m: any) => {
+                  const info = await svc.getVodInfo(String(m.stream_id));
+                  if (info) setMovieInfo(m.stream_id, info);
+                });
+                await runLimited(seriesTargets, async (s: any) => {
+                  const info = await svc.getSeriesInfo(String(s.series_id));
+                  if (info) setSeriesInfo(s.series_id, info);
+                });
+              } catch {
+                // Silent background
+              }
+            })();
 
           } else {
             set({ error: 'Authentication failed. Please check credentials.' });
@@ -188,6 +238,18 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'auth-storage',
+      partialize: (state) => ({
+        isAuthenticated: state.isAuthenticated,
+        authType: state.authType,
+        user: state.user,
+        server: state.server,
+        credentials: state.credentials,
+      }),
+      onRehydrateStorage: () => (state) => {
+        if (!state) return;
+        state.isLoading = false;
+        state.error = null;
+      }
     }
   )
 )
